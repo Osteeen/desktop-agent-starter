@@ -10,9 +10,11 @@ let last: string | null = null;
 let busy = false;
 let consecutiveErrors = 0;
 let halted: string | null = null;
+let timeoutLatch = false;
 const ERROR_CEILING = 5;
 const CALL_TIMEOUT_MS = 3000;
 export async function startWindowSensor(intervalMs = 500): Promise<boolean> {
+  if (timeoutLatch) return false;
   if (timer) return true;
   try {
     // Load the macOS implementation DIRECTLY, not the package index.
@@ -27,7 +29,10 @@ export async function startWindowSensor(intervalMs = 500): Promise<boolean> {
     // lets the packager drop them from the bundle.
     // Only "." is in the exports map, so resolve the entry point and walk to the leaf beside it.
     const entry = createRequire(__filename).resolve('get-windows');
-    const macosUrl = pathToFileURL(path.join(path.dirname(entry), 'lib', 'macos.js')).href;
+    // The adapter derives its executable from import.meta.url. Inside an ASAR that path
+    // is virtual; import the physical unpacked copy so execFile gets a real directory.
+    const physicalEntry = entry.replace(/\/app\.asar\//, '/app.asar.unpacked/');
+    const macosUrl = pathToFileURL(path.join(path.dirname(physicalEntry), 'lib', 'macos.js')).href;
     const mod = (await import(macosUrl)) as { activeWindow: (o?: unknown) => Promise<unknown> };
     timer = setInterval(async () => {
       // The macOS adapter launches a subprocess per call. Without this guard a stalled call
@@ -52,6 +57,7 @@ export async function startWindowSensor(intervalMs = 500): Promise<boolean> {
         // A timed-out call is still running: the race frees our guard but cannot cancel the
         // subprocess. Continuing would stack another behind it, which is how five accumulated.
         if (String(err).includes('timed out')) {
+          timeoutLatch = true;
           halted = 'window sensor halted on the first timeout: the underlying call cannot be cancelled, so continuing would stack subprocesses';
           stopWindowSensor();
           return;

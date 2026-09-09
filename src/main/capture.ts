@@ -72,23 +72,9 @@ export function startCapture(fps = 2, maxWidth = 1280, quality = 60): StartResul
     const myGeneration = generation;
     const t0 = Date.now();
     try {
-      // A getSources call that never settles would leave `busy` true forever and the error
-      // ceiling unreachable. Race a timeout - but a race only frees OUR flag, it does not
-      // cancel the underlying request, so continuing would stack unresolved calls behind it.
-      // Codex measured five piling up. One timeout therefore halts immediately.
-      let timedOut = false;
-      const sources = await Promise.race([
-        desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width, height } }),
-        new Promise<never>((_, rej) => setTimeout(() => { timedOut = true; rej(new Error('getSources timed out after 2s')); }, 2000)),
-      ]).catch((e) => {
-        if (timedOut) {
-          timeoutLatch = true;
-          halted = 'capture halted on the first timeout: a request that never settles cannot be '
-                 + 'cancelled, so continuing would stack pending calls behind it';
-          stopCapture();
-        }
-        throw e;
-      });
+      const sources = await screenRequest(
+        () => desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width, height } }),
+        2000, 'capture request');
       const img = sources[0]?.thumbnail;
       if (!img || img.isEmpty()) {
         errors++; consecutiveErrors++; lastError = 'empty thumbnail (permission revoked or display asleep)';
@@ -155,6 +141,7 @@ export function captureStats(): CaptureStats & { grabs: number; errors: number; 
 // through it, so they can never hold two unresolvable requests between them.
 let inFlight: Promise<unknown> | null = null;
 function screenRequest<T>(make: () => Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  if (timeoutLatch) return Promise.reject(new Error('Screen requests are halted; restart the app'));
   if (inFlight) return inFlight as Promise<T>;
   let timedOut = false;
   const p = Promise.race([

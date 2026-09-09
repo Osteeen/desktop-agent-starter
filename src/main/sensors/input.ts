@@ -19,6 +19,8 @@ const COMMAND_KEYS = new Set([
   'N', 'O',     // new, open
   'Backspace', 'Delete',  // move to Trash
   'F',          // find
+  'G',          // Cmd+Shift+G: Go to Folder
+  'ArrowUp',    // Cmd+Up: enclosing folder
 ]);
 let started = false;
 export async function startInputSensor(): Promise<boolean> {

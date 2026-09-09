@@ -11,6 +11,15 @@ set -euo pipefail
 SERVICE="agent-starter-openai"
 ACCOUNT="${USER}"
 
+# Compile before reading the key. The helper uses Security.framework directly and explicitly
+# consumes stdin, unlike security's terminal-only password prompt. No secret goes in argv.
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd -P)"
+mkdir -p "${SCRIPT_DIR}/../build"
+HELPER_DIR="$(mktemp -d "${SCRIPT_DIR}/../build/keychain.XXXXXX")"
+trap 'unset KEY; rm -rf -- "${HELPER_DIR}"' EXIT
+/usr/bin/swiftc -parse-as-library -module-cache-path "${HELPER_DIR}/modules" \
+  "${SCRIPT_DIR}/store-api-key.swift" -o "${HELPER_DIR}/store-api-key"
+
 printf 'Paste your OpenAI API key (input is hidden), then press Return:\n> '
 IFS= read -rs KEY
 printf '\n'
@@ -24,24 +33,16 @@ case "${KEY}" in
   *) echo "That does not look like an OpenAI key (expected it to start with 'sk-'). Aborted." >&2; exit 1 ;;
 esac
 
-# The key goes on stdin, never in argv: arguments are readable by anything that can run ps
-# while the command is alive. `security -w` with no value prompts twice for confirmation, so
-# the value is supplied twice. Sending it once produces "passwords don't match" and reprompts.
-if ! printf '%s\n%s\n' "${KEY}" "${KEY}" | security add-generic-password -a "${ACCOUNT}" -s "${SERVICE}" -U -w >/dev/null 2>&1; then
-  echo "Could not store the key in the Keychain." >&2
+# The helper stores and compares the readback with the original bytes in memory. Neither
+# value is returned to the shell or printed, including on a same-length mismatch.
+if ! printf '%s\n' "${KEY}" | "${HELPER_DIR}/store-api-key" "${ACCOUNT}" "${SERVICE}"; then
+  echo "Could not store and verify the key in the Keychain." >&2
   unset KEY
   exit 1
 fi
 unset KEY
 
-# Verify it round-trips before claiming success. Length only - the value is never printed.
-STORED_LEN=$(security find-generic-password -a "${ACCOUNT}" -s "${SERVICE}" -w 2>/dev/null | tr -d '\n' | wc -c | tr -d ' ')
-if [ "${STORED_LEN:-0}" -lt 20 ]; then
-  echo "Stored, but reading it back gave ${STORED_LEN:-0} characters. Something is wrong." >&2
-  exit 1
-fi
-echo "Verified: ${STORED_LEN} characters stored and read back."
-unset KEY
+echo "Verified: stored and read back the exact key."
 
 echo "Stored in the Keychain under service '${SERVICE}'."
 echo
