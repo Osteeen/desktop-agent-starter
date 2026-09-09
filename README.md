@@ -39,7 +39,10 @@ syscall that moves a file and fails if the destination exists. It can never over
 > source path gets deleted. On a filesystem without the flag, refuse.
 
 **A recovery gate.** `--gate=recovery` exercises the rename primitive from inside the packaged
-app: collision refused, cross-volume refused, identity change detected, interruption safe.
+app and reports each case: destination collision refused with nothing changed, source-identity
+change detected by the post-check, symlink behaviour made explicit. The cross-volume case is
+reported as SKIP unless a second writable volume is mounted, because an unverified pass is worse
+than an honest skip.
 
 **A prompt evaluation runner.** Scores a prompt against fixtures and against a trivial baseline,
 so "the model picks the right one" becomes a number instead of a feeling. Ships with a generic
@@ -82,4 +85,4 @@ Windows and Linux. The sensors, the overlay, and the rename primitive are all ma
 means a `MoveFileEx` rename without `MOVEFILE_REPLACE_EXISTING`, a Recycle Bin adapter, and a
 different permission flow.
 
-MIT.
+MIT. See [LICENSE](LICENSE).
