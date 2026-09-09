@@ -1,0 +1,28 @@
+[
+  {
+    "id": "e01",
+    "journal": "example",
+    "reference": "the one I made before I opened Mail",
+    "expected": [
+      "c1",
+      "c2"
+    ],
+    "tests": "ambiguous on purpose: both were created before Mail came to the front"
+  },
+  {
+    "id": "e02",
+    "journal": "example",
+    "reference": "the appointment",
+    "expected": [
+      "c2"
+    ],
+    "tests": "one candidate is an appointment, the other a meeting"
+  },
+  {
+    "id": "e03",
+    "journal": "example",
+    "reference": "the one about the budget",
+    "expected": [],
+    "tests": "nothing recorded can answer this - must return no match"
+  }
+]

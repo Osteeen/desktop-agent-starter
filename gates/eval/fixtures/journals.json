@@ -1,0 +1,46 @@
+{
+  "example": {
+    "now": 1700000000300000,
+    "events": [
+      {
+        "id": "e1",
+        "ts": 1700000000000000,
+        "kind": "calendar.created",
+        "name": "Design review",
+        "when": "Thu 15:00"
+      },
+      {
+        "id": "e2",
+        "ts": 1700000000060000,
+        "kind": "calendar.created",
+        "name": "Dentist",
+        "when": "Fri 09:00"
+      },
+      {
+        "id": "e3",
+        "ts": 1700000000120000,
+        "kind": "app.front",
+        "appName": "Mail"
+      }
+    ],
+    "candidates": [
+      {
+        "id": "c1",
+        "kind": "cancel",
+        "name": "Design review",
+        "observedAt": 1700000000000000
+      },
+      {
+        "id": "c2",
+        "kind": "cancel",
+        "name": "Dentist",
+        "observedAt": 1700000000060000
+      }
+    ],
+    "hotkeyContext": {
+      "frontApp": "Mail",
+      "frontTitle": "Inbox",
+      "recentWindows": []
+    }
+  }
+}

@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Permissions</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+<style>body{margin:0;padding:22px 26px;font:14px -apple-system,system-ui,sans-serif;color:#14202B;background:#F4F6F9}
+h1{font-size:18px;margin:0 0 6px}p{color:#5B6B7A;margin:0 0 16px}
+.row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:12px 0;border-top:1px solid #D9E0E7}
+.s{font-family:ui-monospace,Menlo,monospace;font-size:12px;padding:2px 8px;border-radius:4px;background:#EEF2F6}
+.ok{background:#E3F1F0;color:#0B5F5E}.no{background:#FBE9E9;color:#D64545}
+button{font:inherit;padding:6px 10px;border-radius:6px;border:1px solid #D9E0E7;background:#fff;cursor:pointer}
+small{display:block;color:#5B6B7A;margin-top:14px}</style></head>
+<body><h1>Permissions</h1><p>Each sensor needs one macOS grant. Nothing is captured until you grant it. Relaunch after granting Screen Recording.</p>
+<div id="rows"></div>
+<button id="re">Re-check</button><small id="info"></small>
+<script>
+const panes = [
+  ['Screen Recording', 'screen', 'ScreenCapture', 'frames and window titles'],
+  ['Accessibility', 'accessibility', 'Accessibility', 'window metadata'],
+  ['Input Monitoring', 'inputMonitoring', 'ListenEvent', 'clicks and shortcuts - detected by whether events flow'],
+];
+async function render(){
+  const st = await window.perms.status(); const rows = document.getElementById('rows'); rows.innerHTML = '';
+  for (const [label, key, pane, why] of panes) {
+    const v = st[key]; const good = v === 'granted' || v === true || v === 'flowing';
+    const r = document.createElement('div'); r.className = 'row';
+    const l = document.createElement('div'); l.textContent = label + ' - ' + why;
+    const s = document.createElement('span'); s.className = 's ' + (good ? 'ok' : 'no'); s.textContent = String(v);
+    const b = document.createElement('button'); b.textContent = 'Open Settings'; b.onclick = () => window.perms.open(pane);
+    r.append(l, s, b); rows.append(r);
+  }
+  const i = await window.perms.appInfo(); document.getElementById('info').textContent = `${i.name} ${i.version} · Electron ${i.electron} · ${i.packaged ? 'packaged' : 'dev'}`;
+}
+document.getElementById('re').onclick = render; render();
+</script></body></html>

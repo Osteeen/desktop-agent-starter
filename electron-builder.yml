@@ -1,0 +1,27 @@
+appId: com.example.desktop-agent-starter
+productName: Desktop Agent Starter
+# output dir is passed on the command line (see package.json "package"): electron-builder rejects paths containing shell-special characters such as '&'.
+files:
+  - dist/**
+  - renderer/**
+  - lib/**
+  - build/Release/*.node
+  - assets/**
+  - package.json
+asarUnpack:
+  - build/Release/*.node
+  - node_modules/uiohook-napi/**
+  - node_modules/get-windows/**
+npmRebuild: false
+mac:
+  target:
+    - target: dir
+      arch: [arm64]
+  # null = electron-builder does not sign; scripts/sign-adhoc.mjs signs afterwards.
+  # For STABLE permission grants across rebuilds, set this to an "Apple Development: …" identity instead.
+  identity: null
+  hardenedRuntime: false
+  extendInfo:
+    LSUIElement: true
+    NSScreenCaptureUsageDescription: Captures the screen into a short in-memory buffer.
+    NSAccessibilityUsageDescription: Reads window titles and positions.

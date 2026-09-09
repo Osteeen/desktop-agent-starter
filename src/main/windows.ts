@@ -1,0 +1,49 @@
+import { BrowserWindow, app, screen } from 'electron';
+import path from 'node:path';
+import { allowSender } from './ipc.js';
+const rendererDir = () => path.join(app.getAppPath(), 'renderer');
+const preload = (name: string) => path.join(__dirname, '..', 'preload', `${name}.js`);
+const base = (name: string) => ({ preload: preload(name), contextIsolation: true, nodeIntegration: false, sandbox: true });
+
+/** Full-display transparent overlay. Idle = click-through. Call setOverlayInteractive(true) before showing content that takes clicks. */
+export function createOverlayWindow(): BrowserWindow {
+  const { bounds } = screen.getPrimaryDisplay();
+  const win = new BrowserWindow({
+    x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+    transparent: true, frame: false, hasShadow: false, resizable: false, movable: false,
+    alwaysOnTop: true, skipTaskbar: true, show: false, webPreferences: base('overlay'),
+  });
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  win.setIgnoreMouseEvents(true, { forward: true });
+  allowSender(win.webContents);
+  void win.loadFile(path.join(rendererDir(), 'overlay.html'));
+  return win;
+}
+export function setOverlayInteractive(win: BrowserWindow, on: boolean): void {
+  win.setIgnoreMouseEvents(!on, { forward: true });
+  if (on) { win.show(); win.focus(); }
+}
+
+/** Small always-on-top window docked to the right edge. Mechanics only; content is the product's. */
+export function createEdgeWindow(): BrowserWindow {
+  const { workArea } = screen.getPrimaryDisplay();
+  const w = 10, h = 140;
+  const win = new BrowserWindow({
+    x: workArea.x + workArea.width - w, y: workArea.y + Math.round((workArea.height - h) / 2), width: w, height: h,
+    transparent: true, frame: false, hasShadow: false, resizable: false, movable: false, focusable: false,
+    alwaysOnTop: true, skipTaskbar: true, show: true, webPreferences: base('edge'),
+  });
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  allowSender(win.webContents);
+  void win.loadFile(path.join(rendererDir(), 'edge.html'));
+  return win;
+}
+
+export function createOnboardingWindow(): BrowserWindow {
+  const win = new BrowserWindow({ width: 520, height: 420, resizable: false, title: 'Permissions', webPreferences: base('onboarding') });
+  allowSender(win.webContents);
+  void win.loadFile(path.join(rendererDir(), 'onboarding.html'));
+  return win;
+}

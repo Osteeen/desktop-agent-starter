@@ -1,0 +1,49 @@
+{
+  "name": "desktop-agent-starter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Generic macOS starter for desktop agents: Electron shell, overlay and edge windows, permission onboarding, hardened IPC, a screen-capture ring buffer, input and window sensors, and a no-overwrite rename primitive. No product logic.",
+  "main": "dist/main/index.js",
+  "type": "commonjs",
+  "license": "MIT",
+  "scripts": {
+    "build:native": "node-gyp rebuild",
+    "build:ts": "tsc -p tsconfig.json",
+    "build": "npm run build:native && npm run build:ts",
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "start": "npm run build:ts && electron .",
+    "gate:recovery": "npm run build:ts && electron . --gate=recovery",
+    "package": "npm run build && electron-builder --mac --arm64 --dir --config.directories.output=\"${RELEASE_DIR:-$HOME/desktop-agent-starter-release}\" && node scripts/sign-adhoc.mjs",
+    "postinstall": "node -e \"console.log('postinstall: nothing to rebuild (N-API addons are ABI-stable across Electron versions)')\"",
+    "preflight": "node scripts/preflight.mjs",
+    "gate:eval": "node gates/eval/run.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "electron": "^44.2.0",
+    "electron-builder": "^26.15.3",
+    "node-gyp": "^13.0.2",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "get-windows": "^9.3.0",
+    "node-addon-api": "^8.9.2",
+    "uiohook-napi": "^1.5.5"
+  },
+  "author": "Team A&L",
+  "keywords": [
+    "electron",
+    "macos",
+    "desktop-agent",
+    "starter",
+    "overlay",
+    "screen-capture",
+    "napi",
+    "renameatx_np"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Osteeen/desktop-agent-starter.git"
+  }
+}

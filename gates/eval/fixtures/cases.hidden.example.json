@@ -1,0 +1,10 @@
+[
+  {
+    "id": "h01",
+    "journal": "example",
+    "reference": "<write your held-out cases here; copy to cases.hidden.json, which is gitignored>",
+    "expected": [
+      "c1"
+    ]
+  }
+]
