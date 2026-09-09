@@ -8,6 +8,15 @@ files:
   - build/Release/*.node
   - assets/**
   - package.json
+files:
+  # get-windows ships a build toolchain for compiling its Windows addon: node-gyp, cacache,
+  # make-fetch-happen and a vulnerable tar. This app is macOS-only and uses the prebuilt binary,
+  # so none of it is reachable. Excluding it keeps six advisories out of the shipped bundle.
+  - "!node_modules/get-windows/node_modules/**"
+  - "!node_modules/@mapbox/**"
+  - "!node_modules/get-windows/Sources/**"
+  - "!node_modules/get-windows/binding.gyp"
+  - "!node_modules/get-windows/lib/windows.js"
 asarUnpack:
   - build/Release/*.node
   - node_modules/uiohook-napi/**

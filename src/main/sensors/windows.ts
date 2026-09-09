@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 /** Foreground-window sensor: polls the active window and emits on change. Titles are metadata; apply exclusion policy before retaining. */
 export interface FrontWindow { ts: number; appName: string; bundleId: string | null; title: string; bounds: { x: number; y: number; width: number; height: number } }
 export const front = new EventEmitter();
@@ -12,7 +15,20 @@ const CALL_TIMEOUT_MS = 3000;
 export async function startWindowSensor(intervalMs = 500): Promise<boolean> {
   if (timer) return true;
   try {
-    const mod = await import('get-windows');
+    // Load the macOS implementation DIRECTLY, not the package index.
+    //
+    // index.js statically imports lib/macos.js, lib/linux.js AND lib/windows.js, and
+    // lib/windows.js imports @mapbox/node-pre-gyp, which drags in node-gyp, cacache,
+    // make-fetch-happen and a vulnerable tar. On a macOS-only app that whole chain loads for
+    // nothing: lib/macos.js only runs the prebuilt `main` binary through execFile.
+    //
+    // The package's `exports` map has no subpath entries, so the file is resolved through its
+    // package.json and imported by URL. That keeps the six advisories off the runtime graph and
+    // lets the packager drop them from the bundle.
+    // Only "." is in the exports map, so resolve the entry point and walk to the leaf beside it.
+    const entry = createRequire(__filename).resolve('get-windows');
+    const macosUrl = pathToFileURL(path.join(path.dirname(entry), 'lib', 'macos.js')).href;
+    const mod = (await import(macosUrl)) as { activeWindow: (o?: unknown) => Promise<unknown> };
     timer = setInterval(async () => {
       // The macOS adapter launches a subprocess per call. Without this guard a stalled call
       // let the next interval start another, and they accumulated without limit.
@@ -20,7 +36,7 @@ export async function startWindowSensor(intervalMs = 500): Promise<boolean> {
       busy = true;
       try {
         const w = await Promise.race([
-          mod.activeWindow(),
+          mod.activeWindow() as Promise<{ owner: { name: string; bundleId?: string }; title: string; bounds: FrontWindow['bounds'] } | undefined>,
           new Promise<never>((_, rej) => setTimeout(() => rej(new Error('activeWindow timed out')), CALL_TIMEOUT_MS)),
         ]);
         consecutiveErrors = 0;

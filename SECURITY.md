@@ -41,10 +41,10 @@ the kernel with ordinary errors and nothing is created. The addon holds no raw p
 lifetime of its owning `std::string`. `permissions:open` is allowlisted to three known panes and
 cannot be induced to open an arbitrary URL.
 
-**Known, accepted.** `npm audit` reports six advisories reached transitively through
-`get-windows` (`node-gyp`, `tar`, `cacache`, `node-pre-gyp`). ~~None are loaded at runtime and
-none are included in a packaged build.~~ **That was wrong, and the correction is below: all six
-are present in a packaged build and one loads at import.**
+**Resolved.** `npm audit` reports six advisories reached transitively through `get-windows`.
+An earlier note claimed they were build-only; that was wrong. They are now genuinely off both the
+runtime graph and the bundle, by importing the macOS leaf rather than the package index. See the
+second-round findings below.
 
 ## Findings from the second audit of 2026-09-09
 
@@ -84,10 +84,17 @@ on each attempt. One shared in-flight request and the same permanent latch.
 exclusion decision. Nothing reads or transmits them in this starter, so nothing leaks here, but a
 product built on it must implement that gate before claiming any app is excluded.
 
-**Six npm advisories reach the bundle.** The earlier claim that they were build-only was wrong:
-all six are present in a packaged build, and `@mapbox/node-pre-gyp` loads when `get-windows` is
-imported. No reachable exploit was demonstrated. Update or replace that dependency chain before
-relying on this in anything that matters.
+**Six npm advisories: fixed, not merely disclosed.** They were reached through `get-windows`,
+whose `index.js` statically imports its macOS, Linux **and Windows** implementations. Only
+`lib/windows.js` imports `@mapbox/node-pre-gyp`, which pulls in `node-gyp`, `cacache`,
+`make-fetch-happen` and a vulnerable `tar`. A macOS-only app was loading a Windows build
+toolchain for nothing, since `lib/macos.js` merely runs a prebuilt binary through `execFile`.
+
+The sensor now resolves the package entry point and imports `lib/macos.js` beside it by file URL,
+because the package's `exports` map has no subpath entries. Verified: the direct import loads none
+of the five vulnerable packages, while importing the index loads them. The packager also excludes
+`get-windows/node_modules`, `@mapbox`, and `lib/windows.js` from the bundle, so they are neither
+loaded nor shipped.
 
 **"Never written to disk" is an application-level claim only.** No code here writes a frame, and
 no crash reporter is enabled. That says nothing about Chromium's own cache files or the operating
