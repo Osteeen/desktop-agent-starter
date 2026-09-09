@@ -24,11 +24,23 @@ case "${KEY}" in
   *) echo "That does not look like an OpenAI key (expected it to start with 'sk-'). Aborted." >&2; exit 1 ;;
 esac
 
-# The key goes on stdin, never in argv. Arguments are visible to anyone who can run ps while
-# the command is alive, and they can be captured by process accounting.
-security add-generic-password -a "${ACCOUNT}" -s "${SERVICE}" -U -w <<KEYEOF
-${KEY}
-KEYEOF
+# The key goes on stdin, never in argv: arguments are readable by anything that can run ps
+# while the command is alive. `security -w` with no value prompts twice for confirmation, so
+# the value is supplied twice. Sending it once produces "passwords don't match" and reprompts.
+if ! printf '%s\n%s\n' "${KEY}" "${KEY}" | security add-generic-password -a "${ACCOUNT}" -s "${SERVICE}" -U -w >/dev/null 2>&1; then
+  echo "Could not store the key in the Keychain." >&2
+  unset KEY
+  exit 1
+fi
+unset KEY
+
+# Verify it round-trips before claiming success. Length only - the value is never printed.
+STORED_LEN=$(security find-generic-password -a "${ACCOUNT}" -s "${SERVICE}" -w 2>/dev/null | tr -d '\n' | wc -c | tr -d ' ')
+if [ "${STORED_LEN:-0}" -lt 20 ]; then
+  echo "Stored, but reading it back gave ${STORED_LEN:-0} characters. Something is wrong." >&2
+  exit 1
+fi
+echo "Verified: ${STORED_LEN} characters stored and read back."
 unset KEY
 
 echo "Stored in the Keychain under service '${SERVICE}'."

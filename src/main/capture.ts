@@ -151,7 +151,26 @@ export function captureStats(): CaptureStats & { grabs: number; errors: number; 
  *
  * macOS requires a relaunch after granting, so the result is almost always still 'denied'.
  */
-let permissionRequest: Promise<void> | null = null;
+// One in-flight screen request for the whole process. Capture and permission prompting both go
+// through it, so they can never hold two unresolvable requests between them.
+let inFlight: Promise<unknown> | null = null;
+function screenRequest<T>(make: () => Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  if (inFlight) return inFlight as Promise<T>;
+  let timedOut = false;
+  const p = Promise.race([
+    make(),
+    new Promise<never>((_, rej) => setTimeout(() => { timedOut = true; rej(new Error(`${label} timed out`)); }, timeoutMs)),
+  ]).catch((e) => {
+    if (timedOut) {
+      timeoutLatch = true;
+      halted = `${label} timed out and cannot be cancelled; capture is halted for this process`;
+      stopCapture();
+    }
+    throw e;
+  }).finally(() => { if (inFlight === p) inFlight = null; });
+  inFlight = p;
+  return p as Promise<T>;
+}
 
 export async function requestScreenPermission(): Promise<{ status: string; prompted: boolean; note: string }> {
   const before = screenPermission();
@@ -162,19 +181,11 @@ export async function requestScreenPermission(): Promise<{ status: string; promp
   }
   // Repeated prompting used to start a fresh unresolvable request each time. One shared
   // in-flight request, and the same permanent latch capture uses.
-  if (permissionRequest) {
-    await permissionRequest;
-    return { status: screenPermission(), prompted: false, note: 'A request was already in flight.' };
-  }
   try {
-    permissionRequest = Promise.race([
-      desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 8, height: 8 } }).then(() => undefined),
-      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000)),
-    ]);
-    await permissionRequest;
-  } catch (e) {
-    if (String(e).includes('timeout')) timeoutLatch = true;
-  } finally { permissionRequest = null; }
+    await screenRequest(
+      () => desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 8, height: 8 } }),
+      4000, 'permission request');
+  } catch { /* every caller handles the failure identically: the status below is the answer */ }
   return {
     status: screenPermission(),
     prompted: true,

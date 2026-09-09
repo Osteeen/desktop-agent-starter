@@ -4,6 +4,22 @@ import { noteInputEvent } from '../permissions.js';
 export interface ClickEvent { ts: number; x: number; y: number; button: number; phase: 'down' | 'up' }
 export interface ComboEvent { ts: number; combo: string }
 export const input = new EventEmitter();
+
+/**
+ * The only keys recorded, and only ever with Command held.
+ *
+ * Deliberately short. These are the commands that explain what happened to a file; anything
+ * else is someone's work and none of our business.
+ */
+const COMMAND_KEYS = new Set([
+  'Z',          // undo
+  'Q', 'W',     // quit, close
+  'S',          // save
+  'C', 'X', 'V',// copy, cut, paste
+  'N', 'O',     // new, open
+  'Backspace', 'Delete',  // move to Trash
+  'F',          // find
+]);
 let started = false;
 export async function startInputSensor(): Promise<boolean> {
   if (started) return true;
@@ -14,19 +30,19 @@ export async function startInputSensor(): Promise<boolean> {
     uIOhook.on('mouseup', (e) => { noteInputEvent(); input.emit('click', { ts: Date.now(), x: e.x, y: e.y, button: e.button, phase: 'up' } as ClickEvent); });
     uIOhook.on('keydown', (e) => {
       noteInputEvent();
-      // A COMMAND requires Command or Control. Everything else composes text:
-      //   Shift+A  -> "A"    Option+A -> "å"    Shift+Option+A -> "Å"
-      // An earlier version required "any modifier", which recorded ordinary capitals and every
-      // Option-composed character as if it were a shortcut. That contradicted the guarantee
-      // that plain characters are never captured, so the rule is now explicit.
-      if (!e.metaKey && !e.ctrlKey) return;
+      // COMMAND KEY REQUIRED. Holding Command suppresses text entry on macOS, so Cmd+A,
+      // Cmd+Opt+A and Cmd+Shift+A are all commands and none of them produce a character.
+      // Control is NOT sufficient: Ctrl+Opt+1 inserts "1" on a US layout, which an earlier
+      // "Command or Control" rule let through.
+      if (!e.metaKey) return;
 
       const name = keyName(e.keycode);
-      // A modifier pressed on its own carries no command.
-      if (/^(Meta|Ctrl|Alt|Shift)(Right)?$/.test(name)) return;
+      // Second gate: only the keys whose combinations explain what happened to a file.
+      // An allowlist cannot be widened by a keyboard layout the way a rule can.
+      if (!COMMAND_KEYS.has(name)) return;
 
       const mods = [
-        e.metaKey && 'Cmd', e.ctrlKey && 'Ctrl', e.altKey && 'Opt', e.shiftKey && 'Shift',
+        'Cmd', e.ctrlKey && 'Ctrl', e.altKey && 'Opt', e.shiftKey && 'Shift',
       ].filter(Boolean) as string[];
       input.emit('combo', { ts: Date.now(), combo: [...mods, name].join('+') } as ComboEvent);
     });

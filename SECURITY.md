@@ -41,10 +41,10 @@ the kernel with ordinary errors and nothing is created. The addon holds no raw p
 lifetime of its owning `std::string`. `permissions:open` is allowlisted to three known panes and
 cannot be induced to open an arbitrary URL.
 
-**Known, accepted.** `npm audit` reports six advisories, all in the build toolchain reached
-transitively through `get-windows` (`node-gyp`, `tar`, `cacache`, `node-pre-gyp`). None of them are
-loaded at runtime and none are included in a packaged build. Rebuild the dependency tree before
-shipping anything that does execute them.
+**Known, accepted.** `npm audit` reports six advisories reached transitively through
+`get-windows` (`node-gyp`, `tar`, `cacache`, `node-pre-gyp`). ~~None are loaded at runtime and
+none are included in a packaged build.~~ **That was wrong, and the correction is below: all six
+are present in a packaged build and one loads at import.**
 
 ## Findings from the second audit of 2026-09-09
 

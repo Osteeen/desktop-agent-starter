@@ -33,6 +33,13 @@ export async function startWindowSensor(intervalMs = 500): Promise<boolean> {
       } catch (err) {
         consecutiveErrors++;
         front.emit('error', err);
+        // A timed-out call is still running: the race frees our guard but cannot cancel the
+        // subprocess. Continuing would stack another behind it, which is how five accumulated.
+        if (String(err).includes('timed out')) {
+          halted = 'window sensor halted on the first timeout: the underlying call cannot be cancelled, so continuing would stack subprocesses';
+          stopWindowSensor();
+          return;
+        }
         if (consecutiveErrors >= ERROR_CEILING) {
           halted = `window sensor stopped after ${consecutiveErrors} consecutive failures: ${String(err).slice(0, 120)}`;
           stopWindowSensor();

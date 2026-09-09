@@ -3,9 +3,13 @@ export class TimeRing<T extends { ts: number }> {
   private items: T[] = [];
   private sweep: NodeJS.Timeout | null = null;
   /**
-   * `windowMs` is a guarantee, not a hint. Eviction on push alone is lazy: an idle ring holds
-   * its last item indefinitely, so "nothing older than 60 seconds" would be false whenever
-   * nothing was being pushed. A timer sweeps on the same schedule so the claim holds at rest.
+   * Eviction on push alone is lazy: an idle ring would hold its last item indefinitely, so
+   * "nothing older than 60 seconds" was false whenever nothing was being pushed. A timer sweeps
+   * so the bound holds at rest.
+   *
+   * The bound is `windowMs` plus one sweep interval, not `windowMs` exactly. With a 60 s window
+   * the sweep runs every 6 s, so an item can survive up to 66 s. State it that way rather than
+   * claiming a wall-clock guarantee the implementation does not provide.
    */
   constructor(private readonly windowMs: number, private readonly maxItems = Infinity) {
     this.sweep = setInterval(() => this.evict(Date.now()), Math.max(1000, Math.floor(windowMs / 10)));
