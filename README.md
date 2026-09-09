@@ -63,6 +63,20 @@ permission check that is itself waiting on the user, the calls queue against Win
 the machine locks up. `startCapture()` refuses to start unless permission is already granted and
 halts after five consecutive failures. Keep those guards.
 
+## `npm audit` reports six advisories, and that is expected
+
+They come in through `get-windows`, which ships a build toolchain for compiling its Windows
+addon: `node-gyp`, `cacache`, `make-fetch-happen` and a vulnerable `tar`. This starter is macOS
+only and uses the prebuilt binary, so none of it is reachable.
+
+Two things keep it that way, and both are verified rather than assumed. The window sensor imports
+`get-windows/lib/macos.js` directly instead of the package index, because the index statically
+imports `lib/windows.js` which pulls in `@mapbox/node-pre-gyp`. And the packager excludes the
+whole chain, so a packaged build contains none of it. See [SECURITY.md](SECURITY.md).
+
+If you extend this to Windows, that changes: you would be executing the code those advisories
+describe, and you should update or replace the dependency first.
+
 ## Use it
 
 ```
