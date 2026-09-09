@@ -13,6 +13,11 @@ const rows = [];
 const ok   = (n, d) => rows.push({ s: 'PASS', n, d });
 const bad  = (n, d) => rows.push({ s: 'FAIL', n, d });
 const warn = (n, d) => rows.push({ s: 'WARN', n, d });
+// macOS attributes a TCC grant to the process that launched Electron. Run from a terminal that
+// holds the grant, the answer is real. Run from an editor, a CI job, or an agent's shell, every
+// permission reads as denied no matter what the user has actually granted - and reporting that as
+// FAIL sends people to System Settings to re-grant something that was never revoked.
+const interactive = Boolean(process.stdout.isTTY || process.env.TERM_PROGRAM || process.env.SSH_TTY);
 const sh = (c) => { try { return execSync(c, { encoding: 'utf8', stdio: ['ignore','pipe','ignore'] }).trim(); } catch { return null; } };
 
 // --- toolchain ---
@@ -61,18 +66,30 @@ if (fs.existsSync(path.join(cwd, 'dist', 'main', 'index.js'))) {
 if (!perms) {
   warn('Permissions', 'could not query Electron. Run: npx electron . --gate=permissions');
 } else {
-  perms.screenRecording === 'granted'
-    ? ok('Screen Recording', 'granted to the dev Electron binary')
-    : bad('Screen Recording', `${perms.screenRecording}. Needed for frames.\n       System Settings > Privacy & Security > Screen Recording > + > node_modules/electron/dist/Electron.app, then relaunch.`);
-  perms.accessibility
-    ? ok('Accessibility', 'granted - window titles available')
-    : bad('Accessibility', `not granted. This is a DIFFERENT pane from Screen Recording, and it is what\n       the window sensor needs. System Settings > Privacy & Security > Accessibility > + >\n       node_modules/electron/dist/Electron.app, then relaunch.`);
-  String(perms.windowSensor).startsWith('working')
-    ? ok('Window sensor', perms.windowSensor)
-    : bad('Window sensor', String(perms.windowSensor));
-  perms.inputMonitoring === 'flowing'
-    ? ok('Input Monitoring', 'events arriving')
-    : warn('Input Monitoring', `${perms.inputMonitoring}. No status API exists; it is inferred from whether events arrive.\n       Run the app, click a few times, and check the onboarding screen.`);
+  const granted = perms.screenRecording === 'granted' && perms.accessibility
+    && String(perms.windowSensor).startsWith('working');
+  if (!interactive && !granted) {
+    // Do not send someone to System Settings for a grant they already have.
+    warn('Permissions', 'CANNOT BE ASSESSED from this process.\n'
+      + '       macOS ties the grant to whatever launched Electron, and that was not an interactive\n'
+      + '       terminal here, so everything reads as denied regardless of what you have granted.\n'
+      + '       Run this from your own terminal for a real answer. Nothing is wrong.');
+  } else {
+    perms.screenRecording === 'granted'
+      ? ok('Screen Recording', 'granted to the dev Electron binary')
+      : bad('Screen Recording', `${perms.screenRecording}. Needed for frames.\n       System Settings > Privacy & Security > Screen Recording > + > node_modules/electron/dist/Electron.app, then relaunch.`);
+    perms.accessibility
+      ? ok('Accessibility', 'granted - window titles available')
+      : bad('Accessibility', `not granted. This is a DIFFERENT pane from Screen Recording, and it is what\n       the window sensor needs. System Settings > Privacy & Security > Accessibility > + >\n       node_modules/electron/dist/Electron.app, then relaunch.`);
+    String(perms.windowSensor).startsWith('working')
+      ? ok('Window sensor', perms.windowSensor)
+      : bad('Window sensor', String(perms.windowSensor));
+  }
+  if (interactive || perms.inputMonitoring === 'flowing') {
+    perms.inputMonitoring === 'flowing'
+      ? ok('Input Monitoring', 'events arriving')
+      : warn('Input Monitoring', `${perms.inputMonitoring}. No status API exists; it is inferred from whether events arrive.\n       Run the app, click a few times, and check the onboarding screen.`);
+  }
 }
 
 // --- API key ---
@@ -164,7 +181,9 @@ free > 10 ? ok('Free disk', `${free} GB`) : warn('Free disk', `${free} GB - pack
 // --- report ---
 const pad = Math.max(...rows.map(r => r.n.length));
 console.log('\nPRE-FLIGHT\n');
-console.log('  Run this from YOUR OWN terminal. macOS attributes permission grants to the process\n  that launched Electron, so results from anywhere else describe a different process.\n');
+console.log(interactive
+  ? '  Interactive terminal detected, so the permission results below are real.\n'
+  : '  NOT an interactive terminal. macOS ties permission grants to whatever launched Electron,\n  so permission checks are skipped here rather than reported as failures. Everything else is valid.\n');
 for (const r of rows) console.log(`  ${r.s.padEnd(5)} ${r.n.padEnd(pad)}  ${r.d}`);
 const f = rows.filter(r => r.s === 'FAIL').length, w = rows.filter(r => r.s === 'WARN').length;
 console.log(`\n  ${rows.length - f - w} pass, ${w} warn, ${f} fail\n`);
