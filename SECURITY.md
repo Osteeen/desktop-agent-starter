@@ -28,7 +28,7 @@ page carries a Content Security Policy with `default-src 'none'`.
 Inline scripts are permitted (`script-src 'unsafe-inline'`) because the pages are self-contained
 and load nothing external. A product built on this should tighten that.
 
-## Findings from the audit of 2026-09-09
+## Findings from the audit of 2026-09-09 (first round)
 
 **Fixed: NUL truncation in the rename addon.** A JavaScript string may contain NUL; a C string may
 not. Passing one through `c_str()` truncated silently, so a caller asking to create `safe\0HIDDEN`
@@ -45,6 +45,53 @@ cannot be induced to open an arbitrary URL.
 transitively through `get-windows` (`node-gyp`, `tar`, `cacache`, `node-pre-gyp`). None of them are
 loaded at runtime and none are included in a packaged build. Rebuild the dependency tree before
 shipping anything that does execute them.
+
+## Findings from the second audit of 2026-09-09
+
+An independent review found fifteen issues. What changed:
+
+**Input capture was recording text.** The filter required "any modifier", which meant Shift+A
+(a capital letter) and Option+A (which composes `å` on a US layout) were both recorded as
+shortcuts. That contradicted the guarantee outright. A command now requires **Command or
+Control**; Shift and Option compose characters and are never sufficient on their own.
+
+**IPC authorisation survived navigation.** A window registered at startup kept its privileges
+after being navigated elsewhere, so a document that was never meant to have them could call main.
+Registration is now pinned to the document URL: navigation away from it is blocked, window-open
+requests are denied, and privileges are revoked if the document changes anyway.
+
+**Shell injection during signing.** The app path was interpolated into a shell command, so an app
+named `Demo$(touch PWNED).app` executed that command. Arguments now go to `codesign` directly with
+no shell.
+
+**The API key was passed as a command-line argument**, visible to anything that could read the
+process table while it ran. It goes on stdin now.
+
+**The window sensor had no bound.** Each poll launched a subprocess, and a stalled call let the
+next interval start another, without limit. One outstanding call at a time, a three-second
+timeout, and it halts after five consecutive failures.
+
+**Retention was lazy, not guaranteed.** Frames were only evicted when something was pushed, so an
+idle buffer held its last frame indefinitely. A timer now sweeps on the same schedule, and a grab
+that resolves after capture stopped is discarded rather than retained.
+
+**Permission prompting bypassed the capture timeout latch**, starting a fresh unresolvable request
+on each attempt. One shared in-flight request and the same permanent latch.
+
+### Not fixed, disclosed instead
+
+**The exclusion policy does not run before frame retention.** Frames enter the buffer with no
+exclusion decision. Nothing reads or transmits them in this starter, so nothing leaks here, but a
+product built on it must implement that gate before claiming any app is excluded.
+
+**Six npm advisories reach the bundle.** The earlier claim that they were build-only was wrong:
+all six are present in a packaged build, and `@mapbox/node-pre-gyp` loads when `get-windows` is
+imported. No reachable exploit was demonstrated. Update or replace that dependency chain before
+relying on this in anything that matters.
+
+**"Never written to disk" is an application-level claim only.** No code here writes a frame, and
+no crash reporter is enabled. That says nothing about Chromium's own cache files or the operating
+system's encrypted swap.
 
 ## Reporting
 

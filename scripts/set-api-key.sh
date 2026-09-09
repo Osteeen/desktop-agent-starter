@@ -24,7 +24,11 @@ case "${KEY}" in
   *) echo "That does not look like an OpenAI key (expected it to start with 'sk-'). Aborted." >&2; exit 1 ;;
 esac
 
-security add-generic-password -a "${ACCOUNT}" -s "${SERVICE}" -w "${KEY}" -U
+# The key goes on stdin, never in argv. Arguments are visible to anyone who can run ps while
+# the command is alive, and they can be captured by process accounting.
+security add-generic-password -a "${ACCOUNT}" -s "${SERVICE}" -U -w <<KEYEOF
+${KEY}
+KEYEOF
 unset KEY
 
 echo "Stored in the Keychain under service '${SERVICE}'."

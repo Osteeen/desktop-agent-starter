@@ -5,6 +5,7 @@ type RenameResult = { ok: true } | { ok: false; code: string; errno: number; mes
 const safe = require(path.join(__dirname, '..', '..', '..', 'lib', 'safe-rename.cjs')) as { renameExcl: (a: string, b: string) => RenameResult; supported: () => boolean };
 
 export interface GateCase { name: string; status: 'PASS' | 'FAIL' | 'SKIP'; detail: string }
+/** SKIP means not run or not tested. It is never evidence of a pass. */
 export interface GateReport { gate: 'recovery'; ranAt: string; packaged: boolean; execPath: string; cases: GateCase[]; pass: boolean }
 
 const ino = (p: string) => fs.lstatSync(p).ino;
@@ -68,7 +69,10 @@ export function runRecoveryGate(packaged: boolean, execPath: string): GateReport
     add('symlink source: primitive renames the link itself (caller must lstat and refuse)', movedLinkNotTarget ? 'PASS' : 'FAIL', JSON.stringify(r));
   } catch (e) { add('symlink source: primitive renames the link itself (caller must lstat and refuse)', 'FAIL', String(e)); }
 
-  add('interruption safety', 'PASS', 'single syscall by construction: the move is either fully applied or not at all; there is no intermediate state to interrupt');
+  // Codex was right: this was an assertion dressed as a test result. It is a reasoned
+  // expectation from the syscall's semantics, and it has never been experimentally
+  // interrupted. Reporting it as PASS inflated the evidence.
+  add('interruption safety', 'SKIP', 'NOT TESTED. Expected safe because the move is one syscall with no intermediate state, but no interruption experiment has been run. Do not present this as verified.');
 
   const pass = cases.every(c => c.status !== 'FAIL');
   return { gate: 'recovery', ranAt: new Date().toISOString(), packaged, execPath, cases, pass };

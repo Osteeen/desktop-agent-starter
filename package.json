@@ -31,7 +31,7 @@
     "node-addon-api": "^8.9.2",
     "uiohook-napi": "^1.5.5"
   },
-  "author": "Team A&L",
+  "author": "Austin John",
   "keywords": [
     "electron",
     "macos",

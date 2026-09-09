@@ -51,13 +51,28 @@ fs.existsSync(path.join(cwd, 'dist', 'main', 'index.js'))
 // --- permissions, the thing that hangs you if wrong ---
 const devApp = path.join(cwd, 'node_modules', 'electron', 'dist', 'Electron.app');
 fs.existsSync(devApp) ? ok('Dev Electron binary', devApp) : bad('Dev Electron binary', 'run: npm install');
-const tcc = sh(`sqlite3 "${os.homedir()}/Library/Application Support/com.apple.TCC/TCC.db" "select service,client,auth_value from access" 2>/dev/null`);
-if (tcc === null) {
-  warn('Screen Recording grant', 'cannot read the permissions database without Full Disk Access.\n       Check by hand: System Settings > Privacy & Security > Screen Recording > "Electron" is on.');
+// Ask Electron, which has the real APIs, instead of reading a database that needs Full Disk
+// Access. Also exercises the window sensor, whose failure message names the pane it needs.
+let perms = null;
+if (fs.existsSync(path.join(cwd, 'dist', 'main', 'index.js'))) {
+  const out = sh('npx electron . --gate=permissions 2>/dev/null');
+  try { perms = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1)); } catch { /* ignore */ }
+}
+if (!perms) {
+  warn('Permissions', 'could not query Electron. Run: npx electron . --gate=permissions');
 } else {
-  /ScreenCapture\|[^|]*[Ee]lectron[^|]*\|2/.test(tcc)
-    ? ok('Screen Recording grant', 'granted to Electron')
-    : bad('Screen Recording grant', 'not granted to the dev Electron binary.\n       Launch it once, then enable it in System Settings > Privacy & Security > Screen Recording.');
+  perms.screenRecording === 'granted'
+    ? ok('Screen Recording', 'granted to the dev Electron binary')
+    : bad('Screen Recording', `${perms.screenRecording}. Needed for frames.\n       System Settings > Privacy & Security > Screen Recording > + > node_modules/electron/dist/Electron.app, then relaunch.`);
+  perms.accessibility
+    ? ok('Accessibility', 'granted - window titles available')
+    : bad('Accessibility', `not granted. This is a DIFFERENT pane from Screen Recording, and it is what\n       the window sensor needs. System Settings > Privacy & Security > Accessibility > + >\n       node_modules/electron/dist/Electron.app, then relaunch.`);
+  String(perms.windowSensor).startsWith('working')
+    ? ok('Window sensor', perms.windowSensor)
+    : bad('Window sensor', String(perms.windowSensor));
+  perms.inputMonitoring === 'flowing'
+    ? ok('Input Monitoring', 'events arriving')
+    : warn('Input Monitoring', `${perms.inputMonitoring}. No status API exists; it is inferred from whether events arrive.\n       Run the app, click a few times, and check the onboarding screen.`);
 }
 
 // --- API key ---
@@ -81,22 +96,64 @@ if (process.env.OPENAI_API_KEY) {
 const rg = path.join(cwd, 'gates', 'recovery-gate.result.json');
 if (fs.existsSync(rg)) {
   const r = JSON.parse(fs.readFileSync(rg, 'utf8'));
-  r.pass ? ok('Recovery gate', `passed${r.packaged ? ' from the packaged app' : ' (dev process only)'}`)
-         : bad('Recovery gate', 'recorded a failure - open the file');
+  const src = fs.statSync(path.join(cwd, 'src', 'main', 'gates', 'recovery-gate.ts')).mtimeMs;
+  const ran = Date.parse(r.ranAt ?? '');
+  if (!Number.isFinite(ran)) {
+    bad('Recovery gate', 'the report has no usable timestamp, so its freshness cannot be established. Regenerate it.');
+  } else if (ran < src) {
+    bad('Recovery gate', `STALE: the report is older than the gate source. Regenerate it - a report that\n       predates the code it describes is not evidence.`);
+  } else {
+    const skips = (r.cases ?? []).filter(c => c.status === 'SKIP');
+    if (!r.packaged) warn('Recovery gate', 'this report is from a dev process. The packaged app is what you present, so regenerate it from there before Saturday.');
+    r.pass ? ok('Recovery gate', `passed${r.packaged ? ' from the packaged app' : ' (dev process only)'}${skips.length ? `, ${skips.length} case(s) NOT TESTED: ${skips.map(c=>c.name).join('; ')}` : ''}`)
+           : bad('Recovery gate', 'recorded a failure - open the file');
+  }
 } else warn('Recovery gate', 'never run - npm run gate:recovery');
 const ag = path.join(cwd, 'gates', 'eval', 'eval.dev.result.json');
-if (!fs.existsSync(ag)) warn('Prompt eval', 'never run - node gates/eval/run.mjs');
+if (!fs.existsSync(ag)) warn('Prompt eval', 'never run - the one open question. node gates/eval/run.mjs');
 else {
   const r = JSON.parse(fs.readFileSync(ag, 'utf8'));
-  const errs = (r.rows ?? []).filter(x => x.err).length;
-  if (errs) bad('Prompt eval', `last run: every case errored (${errs}/${r.summary.cases}). Not a real result.`);
-  else if (r.summary.modelAccuracy > r.summary.baselineAccuracy)
-    ok('Prompt eval', `model ${Math.round(r.summary.modelAccuracy*100)}% vs baseline ${Math.round(r.summary.baselineAccuracy*100)}%`);
-  else bad('Prompt eval', `model ${Math.round(r.summary.modelAccuracy*100)}% does not beat baseline ${Math.round(r.summary.baselineAccuracy*100)}%`);
+  const su = r.summary ?? {};
+  const rows = r.rows ?? [];
+  // A summary that disagrees with its own rows is not evidence of anything.
+  const inconsistencies = [];
+  if (!Array.isArray(r.rows) || rows.length === 0) inconsistencies.push('no result rows');
+  if (su.cases !== undefined && rows.length && su.cases !== rows.length) inconsistencies.push(`summary says ${su.cases} cases, ${rows.length} rows present`);
+  for (const k of ['pass', 'fail', 'invalid', 'unsupported', 'errored']) {
+    const counted = rows.filter(x => x.verdict === k.toUpperCase().replace('ERRORED', 'ERROR')).length;
+    if (su[k] !== undefined && su[k] !== counted) inconsistencies.push(`summary.${k}=${su[k]} but ${counted} row(s) say so`);
+  }
+  if (su.valid === false) inconsistencies.push('the run marked itself invalid');
+  const ranAt = Date.parse(su.ranAt ?? r.ranAt ?? '');
+  if (!Number.isFinite(ranAt)) inconsistencies.push('no usable timestamp');
+  const v = (name) => rows.filter(x => x.verdict === name).length;
+  const errored = su.errored ?? rows.filter(x => x.err).length;
+  const invalid = su.invalid ?? v('INVALID');
+  const unsupported = su.unsupported ?? v('UNSUPPORTED');
+  const pct = (n) => `${Math.round((n ?? 0) * 100)}%`;
+  // "Beats the baseline" is not "ready to demonstrate". An errored or invalid run measures
+  // nothing, and the safety-sensitive cases must pass on their own merits.
+  if (inconsistencies.length) {
+    bad('Prompt eval', `report is not internally consistent, so it is not evidence: ${inconsistencies.join('; ')}`);
+  } else if (errored) {
+    bad('Prompt eval', `INVALID RUN: ${errored}/${su.cases ?? rows.length} cases errored, so no accuracy was measured.`);
+  } else if (invalid) {
+    bad('Prompt eval', `${invalid} answer(s) contained an invented id or citation. Correctness failure regardless of score. Do not report an accuracy.`);
+  } else {
+    // Codex: matching prose meant a case with a missing or reworded `tests` field silently
+    // stopped being safety-sensitive. Use an explicit flag on the fixture instead.
+    const safety = rows.filter(x => x.safety === true);
+    const safetyFails = safety.filter(x => x.verdict !== 'PASS');
+    const beats = (su.modelAccuracy ?? 0) > (su.baselineAccuracy ?? 0);
+    if (!beats) bad('Prompt eval', `model ${pct(su.modelAccuracy)} does not beat baseline ${pct(su.baselineAccuracy)}. Revisit the product claim.`);
+    else if (safetyFails.length) bad('Prompt eval', `beats baseline (${pct(su.modelAccuracy)} vs ${pct(su.baselineAccuracy)}) but ${safetyFails.length} safety case(s) failed: ${safetyFails.map(x=>x.id).join(', ')}. Not demonstrable.`);
+    else if (unsupported) warn('Prompt eval', `${pct(su.modelAccuracy)} vs ${pct(su.baselineAccuracy)}, safety cases pass, but ${unsupported} answer(s) had no supporting evidence.`);
+    else ok('Prompt eval', `${pct(su.modelAccuracy)} vs baseline ${pct(su.baselineAccuracy)}, safety cases pass, every match evidenced.`);
+  }
 }
 fs.existsSync(path.join(cwd, 'gates', 'eval', 'fixtures', 'cases.hidden.json'))
   ? ok('Held-out cases', 'written')
-  : warn('Held-out cases', 'missing - copy the example and write your own');
+  : warn('Held-out cases', 'missing - copy the example file and write ten');
 
 // --- machine headroom ---
 const load = Number(os.loadavg()[0].toFixed(2));
@@ -107,6 +164,7 @@ free > 10 ? ok('Free disk', `${free} GB`) : warn('Free disk', `${free} GB - pack
 // --- report ---
 const pad = Math.max(...rows.map(r => r.n.length));
 console.log('\nPRE-FLIGHT\n');
+console.log('  Run this from YOUR OWN terminal. macOS attributes permission grants to the process\n  that launched Electron, so results from anywhere else describe a different process.\n');
 for (const r of rows) console.log(`  ${r.s.padEnd(5)} ${r.n.padEnd(pad)}  ${r.d}`);
 const f = rows.filter(r => r.s === 'FAIL').length, w = rows.filter(r => r.s === 'WARN').length;
 console.log(`\n  ${rows.length - f - w} pass, ${w} warn, ${f} fail\n`);

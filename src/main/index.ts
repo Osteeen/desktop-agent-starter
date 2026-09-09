@@ -4,11 +4,12 @@ import fs from 'node:fs';
 import { createOverlayWindow, createEdgeWindow, createOnboardingWindow, setOverlayInteractive } from './windows.js';
 import { handle } from './ipc.js';
 import { permissionStatus, openPermissionPane, promptAccessibility } from './permissions.js';
-import { startCapture, stopCapture, freeze, captureStats, screenPermission } from './capture.js';
-import { startInputSensor, input } from './sensors/input.js';
-import { startWindowSensor, front } from './sensors/windows.js';
+import { startCapture, stopCapture, freeze, captureStats, screenPermission, requestScreenPermission } from './capture.js';
+import { startInputSensor, stopInputSensor, input } from './sensors/input.js';
+import { startWindowSensor, stopWindowSensor, front } from './sensors/windows.js';
 import { runRecoveryGate, formatReport } from './gates/recovery-gate.js';
 import type { PermissionPane } from '../shared/channels.js';
+import { watchRoots, describeRoots } from './config.js';
 
 const args = process.argv.slice(1);
 const gateArg = args.find(a => a.startsWith('--gate='))?.split('=')[1];
@@ -43,6 +44,11 @@ function buildTray(): void {
         await dialog.showMessageBox({ message: r.pass ? 'Recovery gate: PASS' : 'Recovery gate: FAIL', detail: formatReport(r) + `\n\nWritten to ${out}` });
       } },
     { label: 'Capture stats', click: async () => { await dialog.showMessageBox({ message: 'Capture', detail: JSON.stringify(captureStats(), null, 2) }); } },
+    { label: 'Request screen recording permission…', click: async () => {
+        const r = await requestScreenPermission();
+        await dialog.showMessageBox({ message: `Screen Recording: ${r.status}`, detail: r.note });
+      } },
+    { label: 'Watched folders', click: async () => { const w = watchRoots(); await dialog.showMessageBox({ message: describeRoots(w), detail: w.roots.join('\n') + (w.warnings.length ? '\n\n' + w.warnings.join('\n') : '') }); } },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
   ]));
@@ -67,6 +73,26 @@ async function main(): Promise<void> {
     fs.writeFileSync(path.join(outDir, 'recovery-gate.result.json'), JSON.stringify(r, null, 2));
     process.stdout.write(`written: ${path.join(outDir, 'recovery-gate.result.json')}\n`);
     app.exit(r.pass ? 0 : 1); return;
+  }
+  if (gateArg === 'permissions') {          // prints all three and exits; no capture, no sensors
+    const st = permissionStatus();
+    let windowSensor = 'unknown';
+    try {
+      const mod = await import('get-windows');
+      const w = await mod.activeWindow();
+      windowSensor = w ? `working (frontmost: ${(w.owner as { name: string }).name})` : 'returned nothing';
+    } catch (e) {
+      windowSensor = `FAILING - ${String(e).split('\n')[0].slice(0, 160)}`;
+    }
+    process.stdout.write(JSON.stringify({
+      screenRecording: st.screen,
+      accessibility: st.accessibility,
+      inputMonitoring: st.inputMonitoring,
+      windowSensor,
+      note: 'Screen Recording is needed for frames. Accessibility is needed for window titles, '
+          + 'which is what get-windows uses. They are separate panes in System Settings.',
+    }, null, 2) + '\n');
+    app.exit(0); return;
   }
   if (gateArg === 'capture') {                 // measures capture + sensors running together
     if (process.platform === 'darwin') app.dock?.hide();
@@ -110,7 +136,10 @@ async function main(): Promise<void> {
     fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(path.join(outDir, 'capture-gate.result.json'), JSON.stringify(report, null, 2));
     process.stdout.write(`written: ${path.join(outDir, 'capture-gate.result.json')}\n`);
-    stopCapture(); app.exit(0); return;
+    stopCapture();
+    await stopInputSensor();
+    stopWindowSensor();
+    app.exit(0); return;
   }
   if (process.platform === 'darwin') app.dock?.hide();
   registerIpc();
@@ -125,6 +154,10 @@ async function main(): Promise<void> {
   // Sensor events are emitted, not stored: the starter has no journal. A product subscribes here.
   input.on('combo', (e) => { if (process.env.STARTER_DEBUG) console.log('[combo]', e.combo); });
   front.on('change', (e) => { if (process.env.STARTER_DEBUG) console.log('[front]', e.appName, '-', e.title); });
+  const rootsCfg = watchRoots();
+  console.log('[roots]', describeRoots(rootsCfg));
+  for (const w of rootsCfg.warnings) console.warn('[roots]', w);
+
   const st = permissionStatus();
   if (st.screen !== 'granted' || !st.accessibility) {
     // Show onboarding and do NOT start capture. Starting it while a permission dialog is
@@ -139,5 +172,16 @@ async function main(): Promise<void> {
 }
 
 app.whenReady().then(main);
-app.on('will-quit', () => { globalShortcut.unregisterAll(); stopCapture(); });
+let shuttingDown = false;
+app.on('before-quit', (e) => {
+  // Sensors must be stopped before the environment tears down, or uiohook's background
+  // thread calls into a dead isolate and the process aborts instead of quitting.
+  if (shuttingDown) return;
+  e.preventDefault();
+  shuttingDown = true;
+  globalShortcut.unregisterAll();
+  stopCapture();
+  stopWindowSensor();
+  void stopInputSensor().finally(() => app.quit());
+});
 app.on('window-all-closed', () => { /* tray app: keep running */ });

@@ -1,5 +1,6 @@
 import { BrowserWindow, app, screen } from 'electron';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { allowSender } from './ipc.js';
 const rendererDir = () => path.join(app.getAppPath(), 'renderer');
 const preload = (name: string) => path.join(__dirname, '..', 'preload', `${name}.js`);
@@ -16,8 +17,9 @@ export function createOverlayWindow(): BrowserWindow {
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.setIgnoreMouseEvents(true, { forward: true });
-  allowSender(win.webContents);
-  void win.loadFile(path.join(rendererDir(), 'overlay.html'));
+  const url = pathToFileURL(path.join(rendererDir(), 'overlay.html')).toString();
+  allowSender(win.webContents, url);
+  void win.loadURL(url);
   return win;
 }
 export function setOverlayInteractive(win: BrowserWindow, on: boolean): void {
@@ -36,14 +38,16 @@ export function createEdgeWindow(): BrowserWindow {
   });
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  allowSender(win.webContents);
-  void win.loadFile(path.join(rendererDir(), 'edge.html'));
+  const url = pathToFileURL(path.join(rendererDir(), 'edge.html')).toString();
+  allowSender(win.webContents, url);
+  void win.loadURL(url);
   return win;
 }
 
 export function createOnboardingWindow(): BrowserWindow {
   const win = new BrowserWindow({ width: 520, height: 420, resizable: false, title: 'Permissions', webPreferences: base('onboarding') });
-  allowSender(win.webContents);
-  void win.loadFile(path.join(rendererDir(), 'onboarding.html'));
+  const url = pathToFileURL(path.join(rendererDir(), 'onboarding.html')).toString();
+  allowSender(win.webContents, url);
+  void win.loadURL(url);
   return win;
 }
