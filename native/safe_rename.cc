@@ -31,6 +31,26 @@ static Napi::Value RenameExcl(const Napi::CallbackInfo& info) {
   std::string src = info[0].As<Napi::String>().Utf8Value();
   std::string dst = info[1].As<Napi::String>().Utf8Value();
   Napi::Object out = Napi::Object::New(env);
+
+  // A JavaScript string may contain NUL, a C string may not. Passing one through c_str()
+  // silently truncates: the caller believes it asked for "safe\0HIDDEN" and the kernel is
+  // asked for "safe". The operation then reports success for a path nobody requested.
+  // Refuse instead, so what the caller asked for and what happened cannot diverge.
+  if (src.find('\0') != std::string::npos || dst.find('\0') != std::string::npos) {
+    out.Set("ok", Napi::Boolean::New(env, false));
+    out.Set("code", Napi::String::New(env, "EINVAL"));
+    out.Set("errno", Napi::Number::New(env, EINVAL));
+    out.Set("message", Napi::String::New(env,
+      "path contains a NUL byte; refusing rather than silently truncating it"));
+    return out;
+  }
+  if (src.empty() || dst.empty()) {
+    out.Set("ok", Napi::Boolean::New(env, false));
+    out.Set("code", Napi::String::New(env, "EINVAL"));
+    out.Set("errno", Napi::Number::New(env, EINVAL));
+    out.Set("message", Napi::String::New(env, "path is empty"));
+    return out;
+  }
 #ifdef __APPLE__
   errno = 0;
   int rc = renameatx_np(AT_FDCWD, src.c_str(), AT_FDCWD, dst.c_str(), RENAME_EXCL);

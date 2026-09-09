@@ -59,6 +59,24 @@ test('the primitive does not verify source identity - the caller must (documente
   assert.notEqual(ino(b), expected);
 });
 
+test('refuses a path containing a NUL byte instead of silently truncating it', () => {
+  const d = tmpdir(); const a = path.join(d, 'a.txt');
+  fs.writeFileSync(a, 'A');
+  const r = renameExcl(a, path.join(d, 'safe\u0000HIDDEN'));
+  assert.equal(r.ok, false);
+  assert.equal(r.code, 'EINVAL');
+  // Nothing was created under the truncated name, and the source is untouched.
+  assert.equal(fs.existsSync(path.join(d, 'safe')), false);
+  assert.equal(fs.existsSync(a), true);
+});
+
+test('refuses an empty path', () => {
+  const d = tmpdir(); const a = path.join(d, 'a.txt');
+  fs.writeFileSync(a, 'A');
+  assert.equal(renameExcl(a, '').code, 'EINVAL');
+  assert.equal(renameExcl('', a).code, 'EINVAL');
+});
+
 test('cross-volume rename is refused with EXDEV (skipped if no second writable volume)', (t) => {
   const vols = fs.existsSync('/Volumes') ? fs.readdirSync('/Volumes').map(v => path.join('/Volumes', v)) : [];
   const rootDev = fs.statSync('/').dev;

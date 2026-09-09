@@ -17,7 +17,7 @@ const panes = [
   ['Input Monitoring', 'inputMonitoring', 'ListenEvent', 'clicks and shortcuts - detected by whether events flow'],
 ];
 async function render(){
-  const st = await window.perms.status(); const rows = document.getElementById('rows'); rows.innerHTML = '';
+  const st = await window.perms.status(); const rows = document.getElementById('rows'); rows.replaceChildren();
   for (const [label, key, pane, why] of panes) {
     const v = st[key]; const good = v === 'granted' || v === true || v === 'flowing';
     const r = document.createElement('div'); r.className = 'row';
